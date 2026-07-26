@@ -12,7 +12,9 @@
 
 [Português](README.md)
 
-<img src="docs/screenshot.png" width="880" alt="PokeGrid running four accounts at once">
+<img src="docs/modo-simples.png" width="880" alt="Simple mode: dashboard with the numbers of all four accounts">
+
+<sub>Simple mode: hides the game and shows only the numbers. Every section can be moved and resized.</sub>
 
 </div>
 
@@ -61,6 +63,7 @@ bash iniciar.sh
 
 ## What it does
 
+- Run 2, 3 or 4 accounts, you choose how many panels to open.
 - Auto login, even when the session expires in the middle of a farm.
 - Eco mode that keeps CPU use down without hurting progress.
 - Hides the chat and the game icon menu to free up screen.

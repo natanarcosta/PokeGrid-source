@@ -12,11 +12,15 @@
 
 [English](README.en.md)
 
-<img src="docs/screenshot.png" width="880" alt="PokeGrid rodando quatro contas ao mesmo tempo">
+<img src="docs/modo-simples.png" width="880" alt="Modo Simples: painel com os números das quatro contas">
+
+<sub>Modo Simples: esconde o jogo e mostra só os números. Cada seção pode ser movida e redimensionada.</sub>
 
 </div>
 
 > Esta é a versão que roda a partir do código. Não tem executável pronto pra baixar: você pega o código, olha o que ele faz e roda você mesmo. Assim a confiança fica com você, não comigo.
+
+> 🔰 **Nunca mexeu com isso?** Tem um passo a passo pra leigo aqui: **[TUTORIAL.md](TUTORIAL.md)** (ou o arquivo `COMO USAR.txt` dentro da pasta).
 
 > ### 🔒 Seus dados de login ficam só no seu computador
 > Login e senha são criptografados no seu próprio PC e nunca saem dele. Nada de servidor, nada de repositório. O código está todo aqui pra você conferir.
@@ -51,7 +55,9 @@ git clone https://github.com/soufoka/PokeGrid-source.git
 ```
 
 **3. Abra o app**
-No Windows, dê dois cliques no arquivo **iniciar.bat** dentro da pasta. Na primeira vez ele instala o necessário e abre sozinho; nas próximas abre na hora.
+No Windows, dê dois cliques no arquivo **Abrir PokeGrid** (`.vbs`) dentro da pasta. Na primeira vez ele instala o necessário e abre sozinho; nas próximas abre na hora, sem janela preta. Quer um atalho? Botão direito nele, **Enviar para: Área de trabalho (criar atalho)**.
+
+Também dá pra usar o **iniciar.bat**, mas ele mantém uma janela preta aberta e, se ela for fechada, o app fecha junto.
 
 No macOS ou Linux, abra o terminal na pasta e rode:
 
@@ -61,6 +67,7 @@ bash iniciar.sh
 
 ## O que ele faz
 
+- Rode 2, 3 ou 4 contas, você escolhe quantos painéis abrir.
 - Login automático, mesmo quando a sessão expira no meio do farm.
 - Modo Eco que segura o uso de CPU sem atrapalhar o progresso.
 - Esconde o chat e o menu de ícones do jogo pra sobrar tela.

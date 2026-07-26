@@ -9,5 +9,14 @@ if [ ! -d node_modules ]; then
   npm install
 fi
 echo "Abrindo o PokeGrid..."
-# 2>/dev/null descarta os logs do Chromium (ex.: STUN/WebRTC) que so poluem o terminal
-npm start 2>/dev/null
+# O erro do Electron precisa aparecer: descartar o stderr escondia a causa quando o app
+# nao abria (o proprio app ja silencia o spam do Chromium via log-level).
+npm start
+code=$?
+if [ $code -ne 0 ]; then
+  echo
+  echo "O PokeGrid fechou com erro (codigo $code)."
+  echo "Se a mensagem acima falar de sandbox ou namespace, tente:  npm start -- --no-sandbox"
+  echo "Se falar de biblioteca faltando (libgbm, libnss3, libatk...), instale os pacotes que o seu sistema pedir."
+  read -r -p "Enter para fechar..." _
+fi
