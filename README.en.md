@@ -27,6 +27,17 @@ Four accounts running at once, each in its own quadrant with a separate session.
 
 ## How to run
 
+### Option 1: Use the installer (recommended for end users)
+
+Download the installer from the Releases section of the repository and run it:
+- **Windows**: Run the `.exe` file or use the portable version (`.exe` without installation)
+- **macOS**: Open the `.dmg` file and drag the app to Applications
+- **Linux**: Use the `.AppImage`, `.deb` or `.rpm` file according to your distribution
+
+That is it. Log in or create an account in each panel and, under "Treinadores" (Accounts), save the login. Next time it signs in on its own.
+
+### Option 2: Run from source (for developers)
+
 You need Node.js installed once. After that it is quick.
 
 **1. Install Node.js**
@@ -48,8 +59,6 @@ On macOS or Linux, open a terminal in the folder and run:
 bash iniciar.sh
 ```
 
-That is it. Log in or create an account in each panel and, under "Treinadores" (Accounts), save the login. Next time it signs in on its own.
-
 ## What it does
 
 - Auto login, even when the session expires in the middle of a farm.
@@ -69,6 +78,29 @@ That is it. Log in or create an account in each panel and, under "Treinadores" (
 ## Under the hood
 
 Each panel is an Electron `<webview>` with its own partition (`persist:conta1` to `conta4`), and that is what keeps the accounts isolated and logged in between launches. Whatever the game does not offer, the app injects into each panel: Eco swaps `requestAnimationFrame` for a slower version, the login fills through the input's native setter, and the menu and chat disappear via CSS with a `MutationObserver`. It is all in `main.js`, `preload.js` and `index.html`, nothing hidden.
+
+## Building installers
+
+To create installers for distribution:
+
+```bash
+# Install dependencies (first time only)
+npm install
+
+# Build Windows installer
+npm run build:win
+
+# Build macOS installer
+npm run build:mac
+
+# Build Linux installer
+npm run build:linux
+
+# Build all platforms
+npm run build
+```
+
+Installers will be generated in the `dist/` folder.
 
 ## License
 

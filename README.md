@@ -27,6 +27,17 @@ Quatro contas rodando ao mesmo tempo, cada uma no seu quadrante e com sessão se
 
 ## Como rodar
 
+### Opção 1: Usar o instalador (recomendado para usuários finais)
+
+Baixe o instalador na seção de Releases do repositório e execute:
+- **Windows**: Execute o arquivo `.exe` ou use a versão portátil (`.exe` sem instalação)
+- **macOS**: Abra o arquivo `.dmg` e arraste o app para Applications
+- **Linux**: Use o arquivo `.AppImage`, `.deb` ou `.rpm` conforme sua distribuição
+
+Pronto. Entre ou crie uma conta em cada painel e, em "Treinadores", salve o login. Da próxima vez ele entra sozinho.
+
+### Opção 2: Rodar a partir do código (desenvolvedores)
+
 Você precisa do Node.js instalado uma vez. Depois é rápido.
 
 **1. Instale o Node.js**
@@ -48,8 +59,6 @@ No macOS ou Linux, abra o terminal na pasta e rode:
 bash iniciar.sh
 ```
 
-Pronto. Entre ou crie uma conta em cada painel e, em "Treinadores", salve o login. Da próxima vez ele entra sozinho.
-
 ## O que ele faz
 
 - Login automático, mesmo quando a sessão expira no meio do farm.
@@ -69,6 +78,29 @@ Pronto. Entre ou crie uma conta em cada painel e, em "Treinadores", salve o logi
 ## Por dentro
 
 Cada painel é um `<webview>` do Electron com partição própria (`persist:conta1` até `conta4`), e é isso que mantém as contas isoladas e logadas entre aberturas. O que o jogo não oferece, o app injeta em cada painel: o Eco troca o `requestAnimationFrame` por uma versão mais lenta, o login preenche pelo setter nativo do input, e o menu e o chat somem via CSS com um `MutationObserver`. Está tudo em `main.js`, `preload.js` e `index.html`, sem nada escondido.
+
+## Criar instaladores
+
+Para criar os instaladores para distribuição:
+
+```bash
+# Instalar dependências (primeira vez)
+npm install
+
+# Criar instalador para Windows
+npm run build:win
+
+# Criar instalador para macOS
+npm run build:mac
+
+# Criar instalador para Linux
+npm run build:linux
+
+# Criar instaladores para todas as plataformas
+npm run build
+```
+
+Os instaladores serão gerados na pasta `dist/`.
 
 ## Licença
 
