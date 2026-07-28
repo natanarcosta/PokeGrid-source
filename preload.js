@@ -10,5 +10,12 @@ contextBridge.exposeInMainWorld('pokeAPI', {
   notify: (title, body) => ipcRenderer.invoke('notify', title, body),
   readPreset: (name) => ipcRenderer.invoke('preset:read', name),
   logError: (origem, msg) => ipcRenderer.invoke('errlog:write', origem, msg),
-  openErrorLog: () => ipcRenderer.invoke('errlog:open')
+  openErrorLog: () => ipcRenderer.invoke('errlog:open'),
+  // Auto-updater
+  checkUpdate: () => ipcRenderer.invoke('updater:check'),
+  downloadUpdate: () => ipcRenderer.invoke('updater:download'),
+  installUpdate: () => ipcRenderer.invoke('updater:install'),
+  setAutoCheck: (enabled) => ipcRenderer.invoke('updater:setAutoCheck', enabled),
+  getAutoCheck: () => ipcRenderer.invoke('updater:getAutoCheck'),
+  onUpdateStatus: (cb) => ipcRenderer.on('update-status', (_e, data) => cb(data))
 });

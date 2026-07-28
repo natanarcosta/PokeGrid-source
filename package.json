@@ -22,6 +22,9 @@
     "electron": "^43.1.1",
     "electron-builder": "^25.1.8"
   },
+  "dependencies": {
+    "electron-updater": "^6.3.9"
+  },
   "build": {
     "appId": "online.idleworld.pokegrid",
     "productName": "PokeGrid",
@@ -33,6 +36,11 @@
       "!dist/**",
       "!docs/**"
     ],
+    "publish": {
+      "provider": "github",
+      "owner": "natanarcosta",
+      "repo": "PokeGrid-source"
+    },
     "win": {
       "target": [
         {

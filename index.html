@@ -111,6 +111,19 @@
   .sc-add { display: flex; flex-direction: column; gap: 8px; padding-top: 12px; border-top: 1px solid #21262d; }
   .sc-add input, .sc-add textarea { background: #0d1117; border: 1px solid #30363d; border-radius: 6px; color: #e6edf3; padding: 8px 10px; font-size: 12px; width: 100%; font-family: inherit; }
   .sc-add textarea { min-height: 90px; resize: vertical; font-family: ui-monospace, "Cascadia Code", Consolas, monospace; }
+
+  /* Modal de Atualização */
+  #updateOverlay { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: none; align-items: center; justify-content: center; z-index: 100; }
+  #updateOverlay.show { display: flex; }
+  #updateModal { background: #161b22; border: 1px solid #30363d; border-radius: 10px; padding: 18px 20px; width: 460px; max-width: 92vw; }
+  #updateModal h2 { font-size: 15px; margin-bottom: 4px; }
+  #updateModal p.hint { font-size: 11px; color: #8b949e; margin-bottom: 14px; }
+  #updateStatus { font-size: 12px; color: #e6edf3; margin-bottom: 14px; padding: 10px; background: #0d1117; border-radius: 6px; border: 1px solid #21262d; }
+  #updateProgress { height: 6px; background: #21262d; border-radius: 3px; overflow: hidden; margin-bottom: 14px; display: none; }
+  #updateProgress.show { display: block; }
+  #updateProgressFill { height: 100%; background: #e3350d; width: 0%; transition: width 0.3s ease; }
+  #updateReleaseNotes { font-size: 11px; color: #8b949e; margin-bottom: 14px; max-height: 150px; overflow-y: auto; background: #0d1117; padding: 10px; border-radius: 6px; border: 1px solid #21262d; display: none; }
+  #updateReleaseNotes.show { display: block; }
   .sc-add input:focus, .sc-add textarea:focus { outline: none; border-color: #e3350d; }
   .sc-add .primary { align-self: flex-start; }
 
@@ -462,6 +475,8 @@
         <button id="layout">▦ Grade</button>
         <div id="langRow" title="Idioma / Language / Idioma"><span>🌐</span><button data-lang="pt">PT</button><button data-lang="en">EN</button><button data-lang="es">ES</button></div>
         <button id="errlogBtn" title="Abre o relatório de erros. Se o app travar ou fechar sozinho, envie esse arquivo pro suporte.">🐞 Erros</button>
+        <button id="autoUpdateCheck" title="Habilita verificação automática de atualizações ao iniciar o app">🔄 Auto-check atualizações</button>
+        <button id="updateBtn" title="Verifica se há atualizações disponíveis">🔄 Verificar atualizações</button>
       </div>
     </div>
     <button id="refBtn" title="Referral do criador, copie se quiser ajudar :)">🔗</button>
@@ -471,6 +486,20 @@
 
   <div id="ivCard"></div>
   <div id="shinyParty"></div>
+  <div id="updateOverlay">
+    <div id="updateModal">
+      <h2>Atualização disponível</h2>
+      <p class="hint">Uma nova versão do PokeGrid está disponível para download.</p>
+      <div id="updateStatus">Verificando...</div>
+      <div id="updateProgress"><div id="updateProgressFill"></div></div>
+      <div id="updateReleaseNotes"></div>
+      <div class="modal-actions">
+        <button id="updateCancel">Cancelar</button>
+        <button id="updateDownload" class="primary" style="display:none">Baixar</button>
+        <button id="updateInstall" class="primary" style="display:none">Instalar e reiniciar</button>
+      </div>
+    </div>
+  </div>
   <div id="overlay">
     <div id="modal">
       <h2>Treinadores salvos</h2>
@@ -2584,6 +2613,234 @@ S.supBase=cur;if(S.picBase==null){S.picBase=now;}else{if(now>S.picBase){const do
     applyStats(); // restaura o painel de resumo se estava aberto
     applyCards(); // restaura o modo cartas se estava ligado
   })();
+
+  // ===== Auto-updater: verifica e instala atualizações =====
+  const updateOverlay = document.getElementById('updateOverlay');
+  const updateModal = document.getElementById('updateModal');
+  const updateStatus = document.getElementById('updateStatus');
+  const updateProgress = document.getElementById('updateProgress');
+  const updateProgressFill = document.getElementById('updateProgressFill');
+  const updateReleaseNotes = document.getElementById('updateReleaseNotes');
+  const updateDownload = document.getElementById('updateDownload');
+  const updateInstall = document.getElementById('updateInstall');
+  const updateCancel = document.getElementById('updateCancel');
+  const updateBtn = document.getElementById('updateBtn');
+
+  // Textos localizados
+  const updateTexts = {
+    pt: {
+      checking: 'Verificando atualizações...',
+      available: 'Nova versão disponível: ',
+      upToDate: 'Você já está na versão mais recente.',
+      downloading: 'Baixando atualização... ',
+      downloaded: 'Atualização baixada com sucesso!',
+      error: 'Erro ao verificar atualizações: ',
+      download: 'Baixar',
+      install: 'Instalar e reiniciar',
+      cancel: 'Cancelar',
+      title: 'Atualização disponível',
+      hint: 'Uma nova versão do PokeGrid está disponível para download.',
+      autoCheckOn: '🔄 Auto-check atualizações (ativado)',
+      autoCheckOff: '🔄 Auto-check atualizações (desativado)'
+    },
+    en: {
+      checking: 'Checking for updates...',
+      available: 'New version available: ',
+      upToDate: 'You are already on the latest version.',
+      downloading: 'Downloading update... ',
+      downloaded: 'Update downloaded successfully!',
+      error: 'Error checking for updates: ',
+      download: 'Download',
+      install: 'Install and restart',
+      cancel: 'Cancel',
+      title: 'Update available',
+      hint: 'A new version of PokeGrid is available for download.',
+      autoCheckOn: '🔄 Auto-check updates (enabled)',
+      autoCheckOff: '🔄 Auto-check updates (disabled)'
+    },
+    es: {
+      checking: 'Verificando actualizaciones...',
+      available: 'Nueva versión disponible: ',
+      upToDate: 'Ya estás en la versión más reciente.',
+      downloading: 'Descargando actualización... ',
+      downloaded: '¡Actualización descargada con éxito!',
+      error: 'Error al verificar actualizaciones: ',
+      download: 'Descargar',
+      install: 'Instalar y reiniciar',
+      cancel: 'Cancelar',
+      title: 'Actualización disponible',
+      hint: 'Una nueva versión de PokeGrid está disponible para descargar.',
+      autoCheckOn: '🔄 Auto-check actualizaciones (activado)',
+      autoCheckOff: '🔄 Auto-check actualizaciones (desactivado)'
+    }
+  };
+
+  let currentLang = 'pt';
+
+  // Atualiza textos conforme idioma
+  function updateUpdateTexts() {
+    const t = updateTexts[currentLang] || updateTexts.pt;
+    if (updateModal.querySelector('h2')) updateModal.querySelector('h2').textContent = t.title;
+    if (updateModal.querySelector('p.hint')) updateModal.querySelector('p.hint').textContent = t.hint;
+    if (updateCancel) updateCancel.textContent = t.cancel;
+    if (updateDownload) updateDownload.textContent = t.download;
+    if (updateInstall) updateInstall.textContent = t.install;
+  }
+
+  // Atualiza estado do botão de auto-check
+  async function updateAutoCheckButton() {
+    const autoUpdateCheckBtn = document.getElementById('autoUpdateCheck');
+    if (!autoUpdateCheckBtn) return;
+
+    try {
+      const isEnabled = await window.pokeAPI.getAutoCheck();
+      const t = updateTexts[currentLang] || updateTexts.pt;
+      autoUpdateCheckBtn.textContent = isEnabled ? t.autoCheckOn : t.autoCheckOff;
+      autoUpdateCheckBtn.classList.toggle('on', isEnabled);
+    } catch (e) {
+      console.error('Failed to get auto-check status:', e);
+    }
+  }
+
+  // Handler para eventos do auto-updater
+  try {
+    window.pokeAPI.onUpdateStatus((data) => {
+      const t = updateTexts[currentLang] || updateTexts.pt;
+
+      switch (data.status) {
+        case 'checking':
+          updateStatus.textContent = t.checking;
+          updateProgress.classList.remove('show');
+          updateReleaseNotes.classList.remove('show');
+          updateDownload.style.display = 'none';
+          updateInstall.style.display = 'none';
+          break;
+
+        case 'available':
+          updateStatus.textContent = t.available + data.version;
+          updateReleaseNotes.textContent = data.releaseNotes || '';
+          if (data.releaseNotes) updateReleaseNotes.classList.add('show');
+          updateDownload.style.display = 'inline-block';
+          updateInstall.style.display = 'none';
+          updateOverlay.classList.add('show');
+          menu.classList.remove('show');
+          break;
+
+        case 'up-to-date':
+          updateStatus.textContent = t.upToDate;
+          updateProgress.classList.remove('show');
+          updateReleaseNotes.classList.remove('show');
+          updateDownload.style.display = 'none';
+          updateInstall.style.display = 'none';
+          // Mostra modal por 3 segundos
+          updateOverlay.classList.add('show');
+          menu.classList.remove('show');
+          setTimeout(() => updateOverlay.classList.remove('show'), 3000);
+          break;
+
+        case 'downloading':
+          updateStatus.textContent = t.downloading + data.percent + '%';
+          updateProgress.classList.add('show');
+          updateProgressFill.style.width = data.percent + '%';
+          updateDownload.style.display = 'none';
+          updateInstall.style.display = 'none';
+          break;
+
+        case 'downloaded':
+          updateStatus.textContent = t.downloaded;
+          updateProgress.classList.remove('show');
+          updateDownload.style.display = 'none';
+          updateInstall.style.display = 'inline-block';
+          break;
+
+        case 'error':
+          updateStatus.textContent = t.error + (data.error || 'Unknown error');
+          updateProgress.classList.remove('show');
+          updateReleaseNotes.classList.remove('show');
+          updateDownload.style.display = 'none';
+          updateInstall.style.display = 'none';
+          // Mostra modal por 5 segundos
+          updateOverlay.classList.add('show');
+          menu.classList.remove('show');
+          setTimeout(() => updateOverlay.classList.remove('show'), 5000);
+          break;
+      }
+    });
+  } catch (e) {
+    console.error('Failed to setup update handler:', e);
+  }
+
+  // Botão de verificar atualização no menu
+  if (updateBtn) {
+    updateBtn.onclick = () => {
+      try {
+        window.pokeAPI.checkUpdate();
+        menu.classList.remove('show');
+      } catch (e) {
+        console.error('Failed to check for updates:', e);
+      }
+    };
+  }
+
+  // Botão de alternar auto-check de atualizações
+  const autoUpdateCheckBtn = document.getElementById('autoUpdateCheck');
+  if (autoUpdateCheckBtn) {
+    autoUpdateCheckBtn.onclick = async () => {
+      try {
+        const currentStatus = await window.pokeAPI.getAutoCheck();
+        const newStatus = await window.pokeAPI.setAutoCheck(!currentStatus);
+        if (newStatus) {
+          await updateAutoCheckButton();
+        }
+        menu.classList.remove('show');
+      } catch (e) {
+        console.error('Failed to toggle auto-check:', e);
+      }
+    };
+  }
+
+  // Botão de baixar atualização
+  if (updateDownload) {
+    updateDownload.onclick = () => {
+      try {
+        window.pokeAPI.downloadUpdate();
+      } catch (e) {
+        console.error('Failed to download update:', e);
+      }
+    };
+  }
+
+  // Botão de instalar atualização
+  if (updateInstall) {
+    updateInstall.onclick = () => {
+      try {
+        window.pokeAPI.installUpdate();
+      } catch (e) {
+        console.error('Failed to install update:', e);
+      }
+    };
+  }
+
+  // Botão de cancelar
+  if (updateCancel) {
+    updateCancel.onclick = () => {
+      updateOverlay.classList.remove('show');
+    };
+  }
+
+  // Atualiza textos quando idioma muda
+  const originalSetLang = window.setLang;
+  if (originalSetLang) {
+    window.setLang = (lang) => {
+      currentLang = lang;
+      updateUpdateTexts();
+      updateAutoCheckButton();
+      originalSetLang(lang);
+    };
+  }
+
+  // Inicializa estado do botão de auto-check
+  updateAutoCheckButton();
 </script>
 </body>
 </html>

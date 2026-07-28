@@ -74,6 +74,7 @@ bash iniciar.sh
 - Avisa por notificação quando uma conta cai ou fica sem pokébola.
 - Liga e desliga cada painel, zoom, tela cheia e atalhos de teclado.
 - Bandeja, iniciar junto com o Windows e idioma português ou inglês.
+- **Atualizações opcionais**: o app pode verificar atualizações, mas você decide quando baixar e instalar.
 
 ## Segurança
 

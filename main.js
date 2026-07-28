@@ -1,4 +1,5 @@
 const { app, BrowserWindow, ipcMain, safeStorage, Tray, Menu, powerSaveBlocker, shell, session, Notification } = require('electron');
+const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const fs = require('fs');
 const https = require('https'); // so pro webhook opcional do Discord
@@ -38,6 +39,115 @@ ipcMain.handle('errlog:open', () => {
 
 // Instancia unica: abrir o app de novo so foca a janela ja aberta.
 if (!app.requestSingleInstanceLock()) app.quit();
+
+// ===== Auto-updater: atualizações automáticas via GitHub Releases =====
+// Configurações do auto-updater
+autoUpdater.autoDownload = false; // Não baixa automaticamente, pergunta ao usuário
+autoUpdater.autoInstallOnAppQuit = true; // Instala ao fechar o app se já foi baixado
+autoUpdater.autoCheckForUpdates = false; // Desativado por padrão - usuário deve habilitar manualmente
+autoUpdater.setFeedURL({
+  provider: 'github',
+  owner: 'natanarcosta',
+  repo: 'PokeGrid-source'
+});
+
+// Variável para armazenar a janela principal (usada no auto-updater)
+let mainWindow = null;
+
+// Eventos do auto-updater
+autoUpdater.on('checking-for-update', () => {
+  logErro('updater', 'Verificando atualizações...');
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('update-status', { status: 'checking' });
+  }
+});
+
+autoUpdater.on('update-available', (info) => {
+  logErro('updater', 'Atualização disponível: ' + info.version);
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('update-status', { status: 'available', version: info.version, releaseNotes: info.releaseNotes });
+  }
+});
+
+autoUpdater.on('update-not-available', (info) => {
+  logErro('updater', 'Nenhuma atualização disponível (versão atual: ' + info.version + ')');
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('update-status', { status: 'up-to-date', version: info.version });
+  }
+});
+
+autoUpdater.on('download-progress', (progress) => {
+  const percent = Math.floor(progress.percent);
+  logErro('updater', 'Baixando atualização: ' + percent + '%');
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('update-status', { status: 'downloading', percent: percent, speed: progress.bytesPerSecond });
+  }
+});
+
+autoUpdater.on('update-downloaded', (info) => {
+  logErro('updater', 'Atualização baixada: ' + info.version);
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('update-status', { status: 'downloaded', version: info.version });
+  }
+});
+
+autoUpdater.on('error', (err) => {
+  logErro('updater', 'Erro no auto-updater: ' + (err.message || err));
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('update-status', { status: 'error', error: err.message });
+  }
+});
+
+// IPC handlers para o auto-updater
+ipcMain.handle('updater:check', () => {
+  // Só verifica atualizações se estiver empacotado (não em desenvolvimento)
+  if (app.isPackaged) {
+    autoUpdater.checkForUpdates();
+    return true;
+  }
+  return false;
+});
+
+ipcMain.handle('updater:download', () => {
+  autoUpdater.downloadUpdate();
+  return true;
+});
+
+ipcMain.handle('updater:install', () => {
+  autoUpdater.quitAndInstall();
+  return true;
+});
+
+// Handler para habilitar/desabilitar auto-check de atualizações
+ipcMain.handle('updater:setAutoCheck', (_e, enabled) => {
+  // Salva preferência do usuário
+  const userDataPath = app.getPath('userData');
+  const prefsPath = path.join(userDataPath, 'preferences.json');
+  try {
+    let prefs = {};
+    try {
+      prefs = JSON.parse(fs.readFileSync(prefsPath, 'utf8'));
+    } catch {}
+    prefs.autoUpdateCheck = !!enabled;
+    fs.writeFileSync(prefsPath, JSON.stringify(prefs));
+    return true;
+  } catch (e) {
+    logErro('updater', 'Erro ao salvar preferência de auto-update: ' + e.message);
+    return false;
+  }
+});
+
+// Handler para verificar se auto-check está habilitado
+ipcMain.handle('updater:getAutoCheck', () => {
+  const userDataPath = app.getPath('userData');
+  const prefsPath = path.join(userDataPath, 'preferences.json');
+  try {
+    const prefs = JSON.parse(fs.readFileSync(prefsPath, 'utf8'));
+    return prefs.autoUpdateCheck || false;
+  } catch {
+    return false;
+  }
+});
 
 // Paineis presos ao dominio do jogo: nada de popup, e navegar o painel
 // (que carrega a sessao logada) para outro site abre no navegador de fora.
@@ -161,6 +271,7 @@ app.whenReady().then(() => {
     backgroundColor: '#0d1117',
     webPreferences: { webviewTag: true, preload: path.join(__dirname, 'preload.js') }
   });
+  mainWindow = win; // Armazena referência para o auto-updater
   win.loadFile(path.join(__dirname, 'index.html')); // caminho absoluto: robusto no build empacotado (asar)
   // a janela principal so mostra index.html: bloqueia qualquer navegacao dela (canal de exfiltracao se houver XSS)
   win.webContents.on('will-navigate', (e, url) => { if (!url.startsWith('file://')) { e.preventDefault(); abreFora(url); } });
@@ -223,6 +334,21 @@ app.whenReady().then(() => {
   // nasceu escondido pra bandeja, mas nao ha bandeja: mostra, senao seria um processo invisivel
   if (!tray && process.argv.includes('--hidden')) mostrar();
   app.on('second-instance', () => mostrar());
+
+  // Verifica atualizações automaticamente APENAS se o usuário habilitou (só se estiver empacotado)
+  if (app.isPackaged) {
+    setTimeout(() => {
+      try {
+        const prefsPath = path.join(app.getPath('userData'), 'preferences.json');
+        const prefs = JSON.parse(fs.readFileSync(prefsPath, 'utf8'));
+        if (prefs.autoUpdateCheck) {
+          autoUpdater.checkForUpdates().catch(err => logErro('updater', 'Erro ao verificar atualizações: ' + err.message));
+        }
+      } catch {
+        // Se não conseguir ler prefs ou autoUpdateCheck não existir, não verifica
+      }
+    }, 30000);
+  }
 });
 
 app.on('window-all-closed', () => app.quit());
