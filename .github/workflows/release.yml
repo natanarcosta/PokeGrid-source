@@ -76,7 +76,7 @@ jobs:
           git push origin v${{ env.NEW_VERSION }}
 
       - name: Build Linux
-        run: npm run build:linux
+        run: npm run build:linux -- --publish never
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
@@ -111,7 +111,7 @@ jobs:
         run: npm ci
 
       - name: Build Windows
-        run: npm run build:win
+        run: npm run build:win -- --publish never
 
       - name: Upload Windows artifacts
         uses: softprops/action-gh-release@v1
@@ -140,7 +140,7 @@ jobs:
         run: npm ci
 
       - name: Build macOS
-        run: npm run build:mac
+        run: npm run build:mac -- --publish never
 
       - name: Upload macOS artifacts
         uses: softprops/action-gh-release@v1
