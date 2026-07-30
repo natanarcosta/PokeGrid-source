@@ -80,7 +80,9 @@ jobs:
           echo "tag_name=v${{ env.NEW_VERSION }}" >> $GITHUB_OUTPUT
 
       - name: Build Linux
-        run: npm run build:linux -- --publish onTagOrDraft
+        run: npm run build:linux -- --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
@@ -93,7 +95,6 @@ jobs:
             dist/*.AppImage
             dist/*.deb
             dist/*.rpm
-            dist/latest-linux.yml
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -118,7 +119,9 @@ jobs:
         run: npm ci
 
       - name: Build Windows
-        run: npm run build:win -- --publish onTagOrDraft
+        run: npm run build:win -- --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload Windows artifacts
         uses: softprops/action-gh-release@v1
@@ -126,6 +129,5 @@ jobs:
           tag_name: ${{ needs.release.outputs.tag_name }}
           files: |
             dist/*.exe
-            dist/latest.yml
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
