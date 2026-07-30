@@ -24,7 +24,11 @@ function logErro(origem, detalhe) {
     fs.appendFileSync(f, txt);
   } catch {}
 }
-process.on('uncaughtException', (e) => logErro('app', (e && e.stack) || e));
+process.on('uncaughtException', (e) => {
+  logErro('app', (e && e.stack) || e);
+  // erro nao previsto nao pode deixar o usuario com processo vivo e nenhuma janela
+  try { const w = BrowserWindow.getAllWindows()[0]; if (w && !w.isDestroyed() && !w.isVisible()) { w.show(); w.maximize(); } } catch {}
+});
 process.on('unhandledRejection', (e) => logErro('app-promise', (e && e.stack) || e));
 app.on('child-process-gone', (_e, d) => { if (d && d.reason !== 'clean-exit') logErro('processo-' + (d.type || '?'), d.reason + (d.exitCode != null ? ' (exit ' + d.exitCode + ')' : '')); });
 // erros vindos da interface (window.onerror do index.html)
@@ -178,6 +182,19 @@ app.on('web-contents-created', (_e, contents) => {
   });
   contents.on('responsive', () => { clearTimeout(hangTimer); logErro('painel', 'painel voltou a responder'); });
   contents.on('destroyed', () => clearTimeout(hangTimer));
+  // Esc com o jogo focado: avisa a interface (fechar card de IV / desexpandir) SEM consumir a
+  // tecla, o jogo usa Esc pra fechar dialogos. Por isso nao e um accelerator de menu, que engoliria.
+  contents.on('before-input-event', (_ev, input) => {
+    if (input.type === 'keyDown' && input.key === 'Escape' && !input.isAutoRepeat) {
+      try { contents.hostWebContents && contents.hostWebContents.send('hotkey', 'collapse'); } catch {}
+    }
+  });
+  // clique direito no jogo: modo foco (expande/volta). Campo editavel fica de fora,
+  // senao o clique de colar num input viraria tela cheia.
+  contents.on('context-menu', (_ev, params) => {
+    if (params && params.isEditable) return;
+    try { contents.hostWebContents && contents.hostWebContents.send('hotkey', 'ctx' + contents.id); } catch {}
+  });
 });
 
 const credFile = () => path.join(app.getPath('userData'), 'accounts.enc');
@@ -238,6 +255,30 @@ ipcMain.handle('awake:set', (_e, on) => {
 let minToTray = true;
 ipcMain.handle('mintray:set', (_e, on) => { minToTray = !!on; return minToTray; });
 
+// ===== Abrir com o Windows (desligado por padrao) =====
+// Feito com um atalho na pasta Inicializar do usuario, e nao escrevendo na chave Run do registro
+// (que e o metodo do setLoginItemSettings). Motivo: gravar em Run e abrir invisivel sao os dois
+// comportamentos que antivirus tratam como persistencia suspeita. O atalho fica num lugar que o
+// usuario ve e pode apagar sozinho (Win+R > shell:startup), e o app abre com a janela visivel.
+const startupDir = () => path.join(app.getPath('appData'), 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup');
+const startupLnk = () => path.join(startupDir(), 'PokeGrid.lnk');
+const autoStartOn = () => { try { return process.platform === 'win32' && fs.existsSync(startupLnk()); } catch { return false; } };
+function setAutoStart(on) {
+  if (process.platform !== 'win32') return false;
+  try {
+    if (on) {
+      const opts = { target: process.execPath, description: 'PokeGrid', appUserModelId: 'online.idleworld.pokegrid' };
+      if (!app.isPackaged) opts.args = `"${app.getAppPath()}"`; // rodando pelo codigo: electron + a pasta do app
+      shell.writeShortcutLink(startupLnk(), 'create', opts);
+    } else {
+      try { fs.unlinkSync(startupLnk()); } catch {}
+    }
+  } catch (e) { logErro('autostart', String((e && e.message) || e)); }
+  return autoStartOn();
+}
+ipcMain.handle('autostart:get', () => ({ on: autoStartOn(), suportado: process.platform === 'win32' }));
+ipcMain.handle('autostart:set', (_e, on) => setAutoStart(!!on));
+
 // Webhook do Discord (opcional): o usuario cola a URL do proprio servidor. So aceita o dominio
 // oficial de webhooks; o envio sai daqui porque a CSP do renderer bloqueia rede externa.
 ipcMain.handle('webhook:send', (_e, url, text) => {
@@ -254,14 +295,18 @@ ipcMain.handle('webhook:send', (_e, url, text) => {
   } catch { return false; }
 });
 
+
 let tray; // referencia viva para o icone nao sumir (GC)
 
 app.whenReady().then(() => {
-  app.setAppUserModelId('online.idleworld.pokegrid'); // notificacoes do Windows aparecem com o nome certo
+  // Nada aqui pode derrubar a criacao da janela: se qualquer peca do sistema falhar (registro,
+  // particao de sessao corrompida, bandeja), o app tem que abrir assim mesmo. Antes destas
+  // guardas, uma excecao aqui deixava o processo vivo e SEM JANELA, que e o pior sintoma possivel.
+  try { app.setAppUserModelId('online.idleworld.pokegrid'); } catch (e) { logErro('boot', 'appUserModelId: ' + e.message); } // notificacoes do Windows com o nome certo
 
   // Nega pedidos de permissao dos jogos (mic, camera, localizacao, notificacao...).
   for (let i = 1; i <= 4; i++)
-    session.fromPartition('persist:conta' + i).setPermissionRequestHandler((_wc, _p, cb) => cb(false));
+    try { session.fromPartition('persist:conta' + i).setPermissionRequestHandler((_wc, _p, cb) => cb(false)); } catch (e) { logErro('boot', 'sessao conta' + i + ': ' + e.message); }
 
   const win = new BrowserWindow({
     width: 1600,
@@ -284,9 +329,10 @@ app.whenReady().then(() => {
   // Mostra a janela quando o conteudo esta pronto. Precisa do show() explicito: no Linux
   // varios gerenciadores de janela ignoram maximize() em janela ainda nao exibida, e o app
   // subia sem abrir nada. --hidden: nasce na bandeja, farmando.
+  logErro('boot', 'janela criada');
   if (!process.argv.includes('--hidden')) {
-    win.once('ready-to-show', () => { win.show(); win.maximize(); });
-    setTimeout(() => { if (!win.isDestroyed() && !win.isVisible()) { win.show(); win.maximize(); } }, 8000); // rede de seguranca se o evento nao vier
+    win.once('ready-to-show', () => { logErro('boot', 'conteudo pronto'); win.show(); win.maximize(); });
+    setTimeout(() => { if (!win.isDestroyed() && !win.isVisible()) { logErro('boot', 'rede de seguranca: mostrando a janela'); win.show(); win.maximize(); } }, 8000); // rede de seguranca se o evento nao vier
   }
 
   // Atalhos (funcionam mesmo com o jogo focado): Ctrl+1..4 expande painel, Ctrl+M mudo.
@@ -302,26 +348,35 @@ app.whenReady().then(() => {
   }]));
 
   // Bandeja: minimizar esconde da barra de tarefas; clique no icone alterna.
-  // "Iniciar com o Windows" abre ja escondido na bandeja (--hidden).
   // Ao voltar da bandeja, restaura o mesmo estado de antes: hide()+show() no
   // Windows perde o "maximizado", entao rastreamos e reaplicamos.
   let wasMax = true; // nasce maximizado (win.maximize() acima)
   win.on('maximize', () => { wasMax = true; });
   win.on('unmaximize', () => { wasMax = false; });
   const mostrar = () => { const m = wasMax; win.show(); if (m && !win.isMaximized()) win.maximize(); };
-  const liOpts = { path: process.execPath, args: app.isPackaged ? ['--hidden'] : [__dirname, '--hidden'] };
-  // Bandeja e "iniciar com o sistema" nao existem em todo ambiente (Linux sem indicador,
-  // por exemplo). Se falhar, o app segue funcionando sem bandeja em vez de morrer no boot.
+  // Bandeja, registro do Windows e pasta Inicializar entram DEPOIS que a janela aparece.
+  // Sao chamadas sincronas ao sistema, e antivirus costumam interceptar justamente essas; se
+  // travarem, o processo principal congela e a janela nunca abre (processo vivo, tela nenhuma).
+  // Foi o que usuarios relataram na 1.5.5-1.5.7. Agora nada disso bloqueia a abertura.
+  const prepararBandeja = () => {
+    // limpeza do autostart antigo (chave Run, que abria com --hidden): uma unica vez na vida
+    try {
+      const marca = path.join(app.getPath('userData'), 'runkey-limpo');
+      if (!fs.existsSync(marca)) {
+        try { if (app.getLoginItemSettings().openAtLogin) app.setLoginItemSettings({ openAtLogin: false }); } catch (e) { logErro('boot', 'runkey: ' + e.message); }
+        try { fs.writeFileSync(marca, '1'); } catch {}
+      }
+    } catch {}
+  // Bandeja nao existe em todo ambiente (Linux sem indicador, por exemplo). Se falhar, o app
+  // segue funcionando sem bandeja em vez de morrer no boot.
   try {
     tray = new Tray(path.join(__dirname, 'tray.png'));
     tray.setToolTip('PokeGrid');
-    let liOn = false;
-    try { liOn = app.getLoginItemSettings(liOpts).openAtLogin; } catch {}
     tray.setContextMenu(Menu.buildFromTemplate([
       { label: 'Mostrar', click: mostrar },
-      { label: 'Iniciar com o Windows', type: 'checkbox',
-        checked: liOn,
-        click: (item) => { try { app.setLoginItemSettings({ openAtLogin: item.checked, ...liOpts }); } catch (e) { logErro('bandeja', 'iniciar com o sistema nao suportado: ' + e.message); } } },
+      { label: 'Abrir com o Windows', type: 'checkbox',
+        checked: autoStartOn(), visible: process.platform === 'win32',
+        click: (item) => { const r = setAutoStart(item.checked); item.checked = r; win.webContents.send('autostart', r); } },
       { label: 'Sair', click: () => app.quit() }
     ]));
     tray.on('click', () => win.isVisible() ? win.hide() : mostrar());
@@ -329,10 +384,13 @@ app.whenReady().then(() => {
     tray = null;
     logErro('bandeja', 'sem bandeja neste sistema: ' + e.message);
   }
+    // nasceu escondido pra bandeja, mas nao ha bandeja: mostra, senao seria um processo invisivel
+    if (!tray && process.argv.includes('--hidden')) mostrar();
+    logErro('boot', 'bandeja pronta');
+  };
+  setTimeout(prepararBandeja, 1500); // a janela ja esta na tela quando isso roda
   // sem bandeja, esconder ao minimizar deixaria a janela inalcancavel: minimiza normal
   win.on('minimize', () => { if (minToTray && tray) win.hide(); });
-  // nasceu escondido pra bandeja, mas nao ha bandeja: mostra, senao seria um processo invisivel
-  if (!tray && process.argv.includes('--hidden')) mostrar();
   app.on('second-instance', () => mostrar());
 
   // Verifica atualizações automaticamente APENAS se o usuário habilitou (só se estiver empacotado)
