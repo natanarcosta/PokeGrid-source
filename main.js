@@ -41,6 +41,85 @@ ipcMain.handle('errlog:open', () => {
   } catch {}
 });
 
+// Backups automaticos (config semanal e hunts que sairiam do limite de 150): grava em
+// userData/backups sem dialogo. Nome vem do renderer, entao e tratado como hostil: so o
+// basename, charset restrito, teto de 2MB, e no maximo 12 arquivos por prefixo.
+ipcMain.handle('backup:save', (_e, nome, conteudo, cabecalho) => {
+  try {
+    if (typeof nome !== 'string' || typeof conteudo !== 'string') return false;
+    nome = path.basename(nome);
+    if (!/^[\w.-]{1,60}$/.test(nome) || conteudo.length > 2e6) return false;
+    const dir = path.join(app.getPath('userData'), 'backups');
+    fs.mkdirSync(dir, { recursive: true });
+    const alvo = path.join(dir, nome);
+    // anexar so faz sentido em log/csv; num .json anexado o arquivo deixa de ser JSON valido e o
+    // backup nao volta mais na hora que o usuario precisa
+    const anexavel = /\.(csv|log|txt)$/i.test(nome);
+    if (anexavel && fs.existsSync(alvo)) fs.appendFileSync(alvo, conteudo);
+    else fs.writeFileSync(alvo, (typeof cabecalho === 'string' ? cabecalho : '') + conteudo);
+    const prefixo = nome.replace(/[\d-]+\.\w+$/, '');
+    const irmaos = fs.readdirSync(dir).filter((f) => f.startsWith(prefixo)).sort();
+    while (irmaos.length > 12) { try { fs.unlinkSync(path.join(dir, irmaos.shift())); } catch { break; } }
+    return true;
+  } catch (e) { try { logErro('backup', String(e && e.message).slice(0, 200)); } catch {} return false; }
+});
+// Limpa os dados do jogo de UMA conta (cookies, storage e cache da particao dela). Resolve conta
+// "bugada" sem mexer nas outras; a senha salva do treinador nao mora ai e sobrevive.
+ipcMain.handle('conta:limpar', async (_e, i) => {
+  i = Math.trunc(+i);
+  if (!(i >= 0 && i <= 3)) return false;
+  try {
+    // os paineis usam persist:conta1..4 (i + 1); sem o +1 aqui limpava a conta do lado
+    const ses = session.fromPartition('persist:conta' + (i + 1));
+    await ses.clearStorageData();
+    await ses.clearCache();
+    return true;
+  } catch (e) { try { logErro('conta', 'limpar conta' + i + ': ' + String(e && e.message).slice(0, 150)); } catch {} return false; }
+});
+// Baixa userscript do GitHub (base: PR #4 do JulianoCLI). Guardas: so https, so github.com e
+// raw.githubusercontent.com, redirect revalidado pela mesma funcao, no maximo 3 saltos, 2MB e
+// timeouts. Conserto proprio: link /blob/ (o que se copia do navegador) vira raw, senao o app
+// instalava a PAGINA HTML como se fosse o script.
+const US_HOSTS = new Set(['github.com', 'raw.githubusercontent.com']);
+function urlRaw(u) {
+  if (u.hostname === 'github.com') {
+    const p = u.pathname.split('/').filter(Boolean); // owner/repo/blob/branch/caminho...
+    const i = p.indexOf('blob');
+    if (i >= 2 && p.length > i + 2) return new URL('https://raw.githubusercontent.com/' + p[0] + '/' + p[1] + '/' + p.slice(i + 1).join('/'));
+  }
+  return u;
+}
+function baixaUserScript(url, saltos = 0) {
+  return new Promise((resolve) => {
+    let u;
+    try { u = urlRaw(new URL(String(url))); } catch { resolve({ ok: false, error: 'Link invalido.' }); return; }
+    if (u.protocol !== 'https:' || !US_HOSTS.has(u.hostname) || !/\.js$/i.test(u.pathname)) {
+      resolve({ ok: false, error: 'Use um link https do GitHub para um arquivo .js' }); return;
+    }
+    const req = https.get(u, { headers: { 'User-Agent': 'PokeGrid/' + app.getVersion(), Accept: 'text/plain' } }, (res) => {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        res.resume();
+        if (saltos >= 3) { resolve({ ok: false, error: 'Redirecionamentos demais.' }); return; }
+        let prox; try { prox = new URL(res.headers.location, u).toString(); } catch { resolve({ ok: false, error: 'Redirecionamento invalido.' }); return; }
+        baixaUserScript(prox, saltos + 1).then(resolve); return;
+      }
+      if (res.statusCode !== 200) { res.resume(); resolve({ ok: false, error: 'GitHub respondeu HTTP ' + res.statusCode }); return; }
+      let tam = 0, corpo = '', parou = false;
+      res.setEncoding('utf8');
+      res.on('data', (c) => {
+        if (parou) return;
+        tam += Buffer.byteLength(c);
+        if (tam > 2 * 1024 * 1024) { parou = true; req.destroy(); resolve({ ok: false, error: 'O script passa de 2 MB.' }); }
+        else corpo += c;
+      });
+      res.on('end', () => { if (!parou) resolve({ ok: true, url: u.toString(), code: corpo }); });
+      res.on('error', () => { if (!parou) { parou = true; resolve({ ok: false, error: 'Falha ao ler o script.' }); } });
+    });
+    req.setTimeout(12000, () => req.destroy(new Error('timeout')));
+    req.on('error', () => resolve({ ok: false, error: 'Nao foi possivel acessar o GitHub.' }));
+  });
+}
+ipcMain.handle('userscript:fetch', (_e, url) => baixaUserScript(url))
 // Instancia unica: abrir o app de novo so foca a janela ja aberta.
 if (!app.requestSingleInstanceLock()) app.quit();
 
@@ -160,8 +239,11 @@ const abreFora = (url) => { if (/^https?:\/\//i.test(url)) shell.openExternal(ur
 app.on('web-contents-created', (_e, contents) => {
   if (contents.getType() !== 'webview') return;
   contents.setWindowOpenHandler(({ url }) => { abreFora(url); return { action: 'deny' }; });
+  // compara a ORIGEM, nao o prefixo: 'https://poke.idleworld.online.evil.com' comeca igual e
+  // passaria, levando a sessao logada pra um site clonado sem barra de endereco
+  const mesmoJogo = (u) => { try { return new URL(u).origin === new URL(GAME).origin; } catch { return false; } };
   const guarda = (e, url) => {
-    if (!url.startsWith(GAME) && url !== 'about:blank') { e.preventDefault(); abreFora(url); }
+    if (!mesmoJogo(url) && url !== 'about:blank') { e.preventDefault(); abreFora(url); }
   };
   contents.on('will-navigate', guarda);
   contents.on('will-redirect', guarda);
@@ -230,6 +312,9 @@ ipcMain.handle('creds:save', (_e, accounts) => {
 // Deriva da versão real do Chromium, então acompanha upgrades do Electron sozinho.
 app.userAgentFallback = app.userAgentFallback
   .replace(/ Electron\/[\d.]+/, '')
+  // tira tambem o token do proprio app (pokegrid/1.5.x): a UA nao precisa entregar quem usa o
+  // PokeGrid pro servidor do jogo
+  .replace(/ [\w.-]+\/[\d.]+ (?=Chrome\/)/i, ' ')
   .replace(/(Chrome\/\d+)[\d.]+/, '$1.0.0.0');
 
 // Notificacao do SO (alertas de queda e de sem pokebola).
@@ -285,8 +370,10 @@ ipcMain.handle('webhook:send', (_e, url, text) => {
   try {
     const u = new URL(String(url));
     if (u.protocol !== 'https:' || !/^(discord\.com|discordapp\.com)$/.test(u.hostname) || !u.pathname.startsWith('/api/webhooks/')) return false;
-    // allowed_mentions vazio: nome de conta/pokemon vem do jogo, nao pode virar ping de @everyone
-    const body = JSON.stringify({ content: String(text).slice(0, 1900), allowed_mentions: { parse: [] } });
+    // Mencao: so os IDs de usuario que JA estao no texto (o app so poe o que voce configurou).
+    // parse: [] segue barrando @everyone/@here e cargos, mesmo se o nome de uma conta tentar.
+    const ids = (String(text).match(/<@(\d{5,20})>/g) || []).map(x => x.replace(/\D/g, '')).slice(0, 5);
+    const body = JSON.stringify({ content: String(text).slice(0, 1900), allowed_mentions: { parse: [], users: ids } });
     const req = https.request(u, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) } }, (res) => res.resume());
     req.on('error', () => {});
     req.setTimeout(8000, () => req.destroy());
@@ -314,7 +401,7 @@ app.whenReady().then(() => {
     show: false,
     autoHideMenuBar: true,
     backgroundColor: '#0d1117',
-    webPreferences: { webviewTag: true, preload: path.join(__dirname, 'preload.js') }
+    webPreferences: { webviewTag: true, preload: path.join(__dirname, 'preload.js'), backgroundThrottling: false }
   });
   mainWindow = win; // Armazena referência para o auto-updater
   win.loadFile(path.join(__dirname, 'index.html')); // caminho absoluto: robusto no build empacotado (asar)

@@ -20,5 +20,8 @@ contextBridge.exposeInMainWorld('pokeAPI', {
   installUpdate: () => ipcRenderer.invoke('updater:install'),
   setAutoCheck: (enabled) => ipcRenderer.invoke('updater:setAutoCheck', enabled),
   getAutoCheck: () => ipcRenderer.invoke('updater:getAutoCheck'),
-  onUpdateStatus: (cb) => ipcRenderer.on('update-status', (_e, data) => cb(data))
+  onUpdateStatus: (cb) => ipcRenderer.on('update-status', (_e, data) => cb(data)),
+  saveBackup: (nome, conteudo, cabecalho) => ipcRenderer.invoke('backup:save', nome, conteudo, cabecalho),
+  clearAccount: (i) => ipcRenderer.invoke('conta:limpar', i),
+  fetchUserScript: (url) => ipcRenderer.invoke('userscript:fetch', url)
 });
