@@ -1,6 +1,6 @@
 {
   "name": "pokegrid",
-  "version": "1.5.17",
+  "version": "1.6.10",
   "description": "Rode 4 contas de Poke Idle World ao mesmo tempo, em uma janela so / Run 4 Poke Idle World accounts at once, in a single window",
   "main": "main.js",
   "author": "soufoka <soufoka@users.noreply.github.com>",
@@ -10,7 +10,8 @@
     "build:win": "electron-builder --win",
     "build:mac": "electron-builder --mac",
     "build:linux": "electron-builder --linux",
-    "test": "node test/iv-math.test.js && node test/boot.test.js"
+    "test": "node test/iv-math.test.js && node test/boot.test.js",
+    "update-fork": "git pull upstream main"
   },
   "keywords": [
     "electron",
